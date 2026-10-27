@@ -183,6 +183,24 @@ button:disabled { opacity: 0.45; cursor: default; }
   </section>
 </div>
 
+<script>
+/* se qualcosa va storto (telefono vecchio, poca memoria...) lo scrivo sullo schermo invece di lasciare tutto vuoto */
+window.__avviso = function (msg, errore) {
+  var d = document.getElementById("avviso");
+  if (!d) { d = document.createElement("div"); d.id = "avviso"; document.body.appendChild(d); }
+  d.className = errore ? "errore" : ""; d.textContent = msg; d.hidden = !msg;
+};
+window.addEventListener("error", function (e) { window.__avviso("Errore: " + (e.message || "sconosciuto") + (e.lineno ? " (riga " + e.lineno + ")" : ""), true); });
+window.addEventListener("unhandledrejection", function (e) { var r = e.reason; window.__avviso("Errore: " + (r && r.message ? r.message : r), true); });
+setTimeout(function () { if (!window.__avviato) window.__avviso("Caricamento della scena 3D…"); }, 400);
+setTimeout(function () { if (!window.__avviato) window.__avviso("La scena 3D non è partita. Il browser potrebbe essere troppo vecchio: serve iOS 16.4 o più recente, oppure Chrome/Safari aggiornati.", true); }, 45000);
+</script>
+<style>
+#avviso { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 50; max-width: calc(100% - 32px);
+  background: rgba(255, 252, 245, .95); color: #2a2420; border-radius: 12px; padding: 10px 14px; font: 500 14px/1.4 system-ui, sans-serif; box-shadow: 0 4px 18px rgba(0,0,0,.15); }
+#avviso.errore { background: #fff1ee; color: #8a2414; }
+</style>
+
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -209,8 +227,11 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 /* ---------- 1. Palco: renderer, camera, luci, cielo, prato ---------- */
 const palco = document.getElementById("palco");
-const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));   // oltre 1.5 la differenza non si vede, ma il lavoro raddoppia
+// telefoni e tablet: stessa scena, ma meno pesante (meno alberi, ombre più leggere, niente effetti extra)
+const LEGGERO = matchMedia("(pointer: coarse)").matches || Math.min(screen.width, screen.height) < 820;
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: "high-performance" });
+renderer.domElement.addEventListener("webglcontextlost", e => { e.preventDefault(); window.__avviso("Il telefono ha finito la memoria grafica. Chiudi qualche scheda o app e ricarica la pagina.", true); });
+renderer.setPixelRatio(Math.min(devicePixelRatio, LEGGERO ? 1.25 : 1.5));   // oltre 1.5 la differenza non si vede, ma il lavoro raddoppia
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -243,7 +264,7 @@ scena.add(new THREE.HemisphereLight(0xcfe6ff, 0x6b7a3a, 0.55));
 const sole = new THREE.DirectionalLight(0xffe6c4, 2.6);
 sole.position.set(6, 12, 5);
 sole.castShadow = true;
-sole.shadow.mapSize.set(2048, 2048);
+sole.shadow.mapSize.setScalar(LEGGERO ? 1024 : 2048);
 Object.assign(sole.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 });
 sole.shadow.bias = -0.0005;
 scena.add(sole, sole.target);
@@ -292,7 +313,8 @@ for (let i = 0; i < 14; i++) {
    Le posizioni vengono da Google Maps (latitudine e longitudine) e sono
    convertite in metri attorno al punto in cui cammina l'omino, al Valentino.
    ===================================================================== */
-function costruisciTorino(THREE, scena) {
+function costruisciTorino(THREE, scena, opzioni = {}) {
+  const LEGGERO = !!opzioni.leggero;          // telefoni: meno alberi e meno auto, stessa città
   // ---------- 1. Da latitudine/longitudine a metri sulla scena ----------
   const ORIGINE = { lat: 45.0562, lng: 7.6880 };          // il sentiero dell'omino, sulla riva del Po
   const MLAT = 110574, MLNG = 111320 * Math.cos(ORIGINE.lat * Math.PI / 180);
@@ -832,7 +854,7 @@ function costruisciTorino(THREE, scena) {
   }
 
   // ---------- 11. Alberi: collina, Valentino, lungo Po e corsi ----------
-  for (let k = 0; k < 9000; k++) {                         // i boschi della collina
+  for (let k = 0; k < (LEGGERO ? 3000 : 9000); k++) {                         // i boschi della collina
     const N = tra(-3800, 5200), E = poE(N) + tra(240, 6000);
     if (Math.hypot(E - L.superga.E, N - L.superga.N) < 120) continue;
     if (Math.hypot(E - L.cappuccini.E, N - L.cappuccini.N) < 60) continue;
@@ -841,7 +863,7 @@ function costruisciTorino(THREE, scena) {
   const vistaCamera = (x, z) => {                          // non metto alberi davanti alla camera iniziale
     const a = Math.atan2(x, -z); return z < -6 && Math.abs(a - -0.2) < 0.5 && Math.hypot(x, z) < 320;
   };
-  for (let k = 0; k < 2800; k++) {                         // Parco del Valentino
+  for (let k = 0; k < (LEGGERO ? 1400 : 2800); k++) {                         // Parco del Valentino
     const N = tra(-1050, 300), E = tra(-430, poE(N) - 75);
     const s = inScena(E, N);
     if (Math.hypot(s.x, s.z) < 30 || vistaCamera(s.x, s.z)) continue;
@@ -928,7 +950,7 @@ function costruisciTorino(THREE, scena) {
   }
   const auto = [];
   const pesoTot = corsie.reduce((s, c) => s + c.l * c.peso, 0);
-  const NAUTO = 520;
+  const NAUTO = LEGGERO ? 200 : 520;
   for (let k = 0; k < NAUTO && corsie.length; k++) {
     let r = rnd() * pesoTot, c = corsie[0];
     for (const cc of corsie) { r -= cc.l * cc.peso; if (r <= 0) { c = cc; break; } }
@@ -1292,7 +1314,7 @@ function arredaPiazza(THREE, scena, modello, CENTRO, ASSE, LATO) {
   return { aggiorna, pavimento: Y_AREA };
 }
 
-const TORINO = costruisciTorino(THREE, scena);
+const TORINO = costruisciTorino(THREE, scena, { leggero: LEGGERO });
 
 function cieloSfumato() {
   const c = document.createElement("canvas");
@@ -1331,6 +1353,7 @@ function caricaModello(id = "modello") {
   const testo = document.getElementById(id).textContent.trim();
   if (!testo || testo.startsWith("__")) return Promise.reject(new Error("modello mancante: " + id));
   const bin = Uint8Array.from(atob(testo), c => c.charCodeAt(0));
+  document.getElementById(id).textContent = "";        // libero la memoria del testo: sui telefoni conta
   return new Promise((ok, ko) => new GLTFLoader().parse(bin.buffer, "", ok, ko));
 }
 
@@ -1541,6 +1564,8 @@ renderer.setAnimationLoop(() => {
     renderer.render(scena, camera);
   }
   aggiornaEtichette(performance.now());
+  if (!window.__avviato) window.__avviato = true;
+  if (mixer && !window.__prontoMostrato) { window.__prontoMostrato = true; window.__avviso(""); }
 });
 
 function ridimensiona() {
@@ -1604,7 +1629,7 @@ scenaPiazza.add(new THREE.HemisphereLight(0xcfe6ff, 0x8a7f70, 0.6));
 const sole2 = new THREE.DirectionalLight(0xffe2bc, 2.8);
 sole2.castShadow = true; sole2.shadow.mapSize.set(2048, 2048); sole2.shadow.bias = -0.0005;
 Object.assign(sole2.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 400 });
-sole2.shadow.mapSize.set(2048, 2048); sole2.shadow.radius = 3;
+sole2.shadow.mapSize.setScalar(LEGGERO ? 1024 : 2048); sole2.shadow.radius = 3;
 scenaPiazza.add(sole2, sole2.target);
 // le coordinate della piazza: stessa conversione usata da Blosm (metri attorno al centro dell'importazione)
 const PZ_LAT0 = 45.06469917297363, PZ_LON0 = 7.695649862289429;
@@ -1624,7 +1649,14 @@ const etichettePiazza = creaEtichette([
 let inPiazza = false, piazzaPronta = false, tPz = -40, versoPz = 1, fermoPz = 0, arredo = null;
 const CORSIA_OMINO = -16;     // l'omino passeggia sul porfido, fra i lampioni e le panchine
 const btnEntra = document.getElementById("entra");
-caricaModello("piazza").then(gltf => {
+// la piazza: sul computer la preparo subito, sul telefono solo quando ci entri (risparmio memoria)
+let piazzaInCarico = null;
+function caricaPiazza() {
+  if (!piazzaInCarico) piazzaInCarico = caricaModello("piazza").then(preparaPiazza).catch(err => { window.__avviso("Piazza Vittorio non disponibile: " + err.message, true); });
+  return piazzaInCarico;
+}
+if (!LEGGERO) caricaPiazza(); else btnEntra.disabled = false;
+function preparaPiazza(gltf) {
   scenaPiazza.add(gltf.scene);
   scenaPiazza.updateMatrixWorld(true);
   arredo = arredaPiazza(THREE, scenaPiazza, gltf.scene, CENTRO_PZ, ASSE_PZ, LATO_PZ);
@@ -1636,10 +1668,10 @@ caricaModello("piazza").then(gltf => {
   });
   piazzaPronta = true; btnEntra.disabled = false;
   popolaPiazza();
-}).catch(err => console.warn("Piazza Vittorio non disponibile", err));
+}
 
 // in piazza: occlusione ambientale (gli angoli e i portici si scuriscono come nella realtà)
-try {
+if (!LEGGERO) try {
   compositore = new EffectComposer(renderer);
   compositore.addPass(new RenderPass(scenaPiazza, camera));
   const ao = new GTAOPass(scenaPiazza, camera, palco.clientWidth, palco.clientHeight);
@@ -1715,7 +1747,8 @@ let modelloPassante = null;
 function popolaPiazza() {
   if (!piazzaPronta || !ominoSorgente || passanti.length) return;
   modelloPassante = creaModelloPassante(ominoSorgente);
-  const percorsi = [49.6, -49.6, 50.6, -50.6, 27.5, -27.5, 15.5, -15.5, 28.5, -28.5, 49.6, -49.6, 16.5, -16.5, -13.5, -18, -26.5, -49.6, -50.6, -14.5];
+  let percorsi = [49.6, -49.6, 50.6, -50.6, 27.5, -27.5, 15.5, -15.5, 28.5, -28.5, 49.6, -49.6, 16.5, -16.5, -13.5, -18, -26.5, -49.6, -50.6, -14.5];
+  if (LEGGERO) percorsi = percorsi.filter((l, k) => k % 2 === 0);          // sul telefono 10 passanti invece di 20
   percorsi.forEach((l, k) => {
     const copia = SkeletonUtils.clone(modelloPassante);
     copia.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; } });
@@ -1781,7 +1814,12 @@ function esciPiazza() {
     ricomincia();
   });
 }
-btnEntra.addEventListener("click", () => inPiazza ? esciPiazza() : entraPiazza());
+btnEntra.addEventListener("click", () => {
+  if (inPiazza) return esciPiazza();
+  if (piazzaPronta) return entraPiazza();
+  btnEntra.disabled = true; window.__avviso("Preparo Piazza Vittorio…");
+  caricaPiazza().then(() => { window.__avviso(""); btnEntra.disabled = false; entraPiazza(); });
+});
 
 function aggiornaPiazza(dt) {
   if (arredo) arredo.aggiorna(dt);
